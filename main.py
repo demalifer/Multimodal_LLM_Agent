@@ -1,69 +1,57 @@
-from PIL import Image
+from pathlib import Path
+
 import torch
-from transformers import AutoTokenizer, AutoModelForCausalLM
-from transformers import CLIPProcessor, CLIPModel
+from PIL import Image
+from transformers import CLIPModel, CLIPProcessor
 
-device = "cuda" if torch.cuda.is_available() else "cpu"
-
-# ========= 1️.加载模型 =========
-print("Loading models...")
-
-# LLM
-tokenizer = AutoTokenizer.from_pretrained("THUDM/chatglm3-6b", trust_remote_code=True)
-llm = AutoModelForCausalLM.from_pretrained(
-    "THUDM/chatglm3-6b",
-    trust_remote_code=True,
-    device_map="auto"
-).eval()
-
-# CLIP
-clip_model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32").to(device)
-clip_processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
-
-print("Models loaded!")
-
-# ========= 2️.图像理解 =========
-def get_image_description(image_path):
-    image = Image.open(image_path).convert("RGB")
-
-    inputs = clip_processor(
-        text=["a dog", "a cat", "a car", "a person"],
-        images=image,
-        return_tensors="pt",
-        padding=True
-    ).to(device)
-
-    outputs = clip_model(**inputs)
-    logits = outputs.logits_per_image
-    probs = logits.softmax(dim=1)
-
-    labels = ["狗", "猫", "汽车", "人"]
-    pred = labels[probs.argmax().item()]
-
-    return pred
+MODEL_NAME = "openai/clip-vit-base-patch32"
+IMAGE_PATH = "test.jpg"
 
 
-# ========= 3️.问答 =========
-def ask(image_path, question):
-    image_desc = get_image_description(image_path)
-
-    prompt = f"""
-图片内容：这是一张{image_desc}的图片。
-问题：{question}
-请基于图片内容回答：
-"""
-
-    inputs = tokenizer(prompt, return_tensors="pt").to(llm.device)
-    outputs = llm.generate(**inputs, max_new_tokens=100)
-    answer = tokenizer.decode(outputs[0], skip_special_tokens=True)
-
-    return answer
+def get_device() -> torch.device:
+    """Return CUDA device when available, otherwise CPU."""
+    return torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
-# ========= 4️.测试 =========
+def load_clip_model_and_processor(model_name: str, device: torch.device) -> tuple[CLIPModel, CLIPProcessor]:
+    """Load CLIP model and processor from Hugging Face."""
+    processor = CLIPProcessor.from_pretrained(model_name)
+    model = CLIPModel.from_pretrained(model_name).to(device)
+    model.eval()
+    return model, processor
+
+
+def load_image(image_path: str | Path) -> Image.Image:
+    """Load a local image and convert it to RGB mode."""
+    return Image.open(image_path).convert("RGB")
+
+
+def extract_image_embedding(
+    image: Image.Image,
+    model: CLIPModel,
+    processor: CLIPProcessor,
+    device: torch.device,
+) -> torch.Tensor:
+    """Preprocess image with CLIPProcessor and extract image embeddings."""
+    inputs = processor(images=image, return_tensors="pt")
+    pixel_values = inputs["pixel_values"].to(device)
+
+    with torch.no_grad():
+        embedding = model.get_image_features(pixel_values=pixel_values)
+
+    return embedding
+
+
+def main() -> None:
+    device = get_device()
+    print(f"Using device: {device}")
+
+    model, processor = load_clip_model_and_processor(MODEL_NAME, device)
+    image = load_image(IMAGE_PATH)
+    embedding = extract_image_embedding(image, model, processor, device)
+
+    print(f"Image embedding shape: {embedding.shape}")
+
+
 if __name__ == "__main__":
-    print("Test 1:")
-    print(ask("data/dog.png", "这是什么动物？"))
-
-    print("\nTest 2:")
-    print(ask("data/cat.png", "这是什么动物？"))
+    main()
