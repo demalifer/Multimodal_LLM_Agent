@@ -6,15 +6,23 @@ from transformers import CLIPModel, CLIPProcessor
 
 MODEL_NAME = "openai/clip-vit-base-patch32"
 IMAGE_PATH = "test.jpg"
+CANDIDATE_LABELS = [
+    "a dog",
+    "a cat",
+    "a car",
+    "a person",
+    "a building",
+    "a tree",
+]
 
 
 def get_device() -> torch.device:
-    """Return CUDA device when available, otherwise CPU."""
+    """Return CUDA when available, otherwise CPU."""
     return torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 def load_clip_model_and_processor(model_name: str, device: torch.device) -> tuple[CLIPModel, CLIPProcessor]:
-    """Load CLIP model and processor from Hugging Face."""
+    """Load CLIP model and processor from Hugging Face and move model to device."""
     processor = CLIPProcessor.from_pretrained(model_name)
     model = CLIPModel.from_pretrained(model_name).to(device)
     model.eval()
@@ -22,35 +30,44 @@ def load_clip_model_and_processor(model_name: str, device: torch.device) -> tupl
 
 
 def load_image(image_path: str | Path) -> Image.Image:
-    """Load a local image and convert it to RGB mode."""
+    """Load local image and convert to RGB."""
     return Image.open(image_path).convert("RGB")
 
 
-def extract_image_embedding(
-    image: Image.Image,
-    model: CLIPModel,
-    processor: CLIPProcessor,
-    device: torch.device,
-) -> torch.Tensor:
-    """Preprocess image with CLIPProcessor and extract image embeddings."""
-    inputs = processor(images=image, return_tensors="pt")
-    pixel_values = inputs["pixel_values"].to(device)
+def zero_shot_classify_image(
+    image_path: str | Path,
+    candidate_labels: list[str],
+    model_name: str = MODEL_NAME,
+) -> tuple[str, float, str]:
+    """Run CLIP zero-shot classification and return best label, score, and description."""
+    device = get_device()
+    model, processor = load_clip_model_and_processor(model_name, device)
+    image = load_image(image_path)
+
+    inputs = processor(text=candidate_labels, images=image, return_tensors="pt", padding=True)
+    inputs = {key: value.to(device) for key, value in inputs.items()}
 
     with torch.no_grad():
-        embedding = model.get_image_features(pixel_values=pixel_values)
+        outputs = model(**inputs)
+        probs = outputs.logits_per_image.softmax(dim=1).squeeze(0)
 
-    return embedding
+    best_idx = int(torch.argmax(probs).item())
+    best_label = candidate_labels[best_idx]
+    best_score = float(probs[best_idx].item())
+    description = f"This image is about {best_label}."
+
+    return best_label, best_score, description
 
 
 def main() -> None:
-    device = get_device()
-    print(f"Using device: {device}")
+    best_label, best_score, description = zero_shot_classify_image(
+        image_path=IMAGE_PATH,
+        candidate_labels=CANDIDATE_LABELS,
+    )
 
-    model, processor = load_clip_model_and_processor(MODEL_NAME, device)
-    image = load_image(IMAGE_PATH)
-    embedding = extract_image_embedding(image, model, processor, device)
-
-    print(f"Image embedding shape: {embedding.shape}")
+    print(f"Most similar label: {best_label}")
+    print(f"Confidence: {best_score:.4f}")
+    print(description)
 
 
 if __name__ == "__main__":
