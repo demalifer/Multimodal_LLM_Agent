@@ -37,10 +37,9 @@ select = ["E", "F", "I", "B", "UP", "SIM"]
 ignore = ["E501"]
 
 [tool.setuptools]
-py-modules = [
-  "main",
-  "chatglm_module",
-  "streamlit_app",
-  "tool_executor",
-  "tool_router",
-]
+[tool.setuptools.package-dir]
+"" = "."
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["multimodal_agent*"]

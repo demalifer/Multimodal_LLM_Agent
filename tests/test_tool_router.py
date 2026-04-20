@@ -1,4 +1,4 @@
-from tool_router import ToolRouter
+from multimodal_agent.tools.tool_router import ToolRouter
 
 
 def test_route_python() -> None:

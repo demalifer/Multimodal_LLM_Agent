@@ -1,4 +1,4 @@
-from tool_executor import execute_tool
+from multimodal_agent.tools.tool_executor import execute_tool
 
 
 def test_execute_python_success() -> None:
