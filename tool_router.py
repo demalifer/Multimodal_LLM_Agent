@@ -5,11 +5,11 @@
 
 from __future__ import annotations
 
-import io
 import json
 import sqlite3
-from contextlib import redirect_stdout
 from typing import Any
+
+from execution import run_python_code
 
 
 class ToolRouter:
@@ -25,14 +25,10 @@ class ToolRouter:
         if not isinstance(code, str) or not code.strip():
             raise ValueError("python 工具参数错误: code 必须是非空字符串")
 
-        buffer = io.StringIO()
         try:
-            with redirect_stdout(buffer):
-                exec(code, {}, {})  # noqa: S102
-        except Exception as exc:  # noqa: BLE001
+            return run_python_code(code)
+        except RuntimeError as exc:
             raise RuntimeError(f"python 执行异常: {exc}") from exc
-
-        return buffer.getvalue().rstrip("\n")
 
     def execute_sql(self, query: str) -> dict[str, Any]:
         """在内存数据库中执行 SQL 并返回结果。"""
