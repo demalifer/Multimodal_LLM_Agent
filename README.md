@@ -8,15 +8,28 @@
 
 ---
 
+## 工程化能力（本次增强）
+
+- 使用 `pyproject.toml` 统一项目元数据、依赖与开发工具配置（`pytest` / `ruff`）。
+- 使用 `Makefile` 统一常见命令（安装、静态检查、测试、运行）。
+- 增加 `tests/` 自动化测试，覆盖工具执行与路由核心逻辑。
+- 新增 `execution.py`，集中维护受限 Python 执行能力，避免重复实现。
+
+---
+
 ## 项目结构
 
 ```text
 .
 ├── chatglm_module.py     # ChatGLM3-6B 封装：根据问题+图像描述生成回答
+├── execution.py          # 统一 Python 执行工具（受限 builtins）
 ├── main.py               # CLIP 零样本图像分类示例
 ├── streamlit_app.py      # Streamlit 多模态问答页面
 ├── tool_executor.py      # 简单 JSON 工具执行器（python）
 ├── tool_router.py        # 工具路由器（python/sql/api）
+├── tests/                # pytest 测试
+├── pyproject.toml        # 依赖与工程配置
+├── Makefile              # 常用工程命令
 └── data/
     ├── cat.png
     └── dog.png
@@ -31,19 +44,27 @@
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install -U pip
-pip install torch transformers pillow requests streamlit
+make setup
 ```
 
 > 如果你使用 GPU，请根据本机 CUDA 版本安装对应的 `torch`。
 
 ---
 
+## 常用工程命令
+
+```bash
+make lint     # ruff 静态检查
+make test     # pytest 自动化测试
+make run-clip # 运行 CLIP 示例
+make run-ui   # 启动 Streamlit
+```
+
+---
+
 ## 1) 运行 CLIP 图像分类示例
 
 `main.py` 会加载 `openai/clip-vit-base-patch32`，对指定图片在候选标签中做零样本匹配。
-
-### 使用方式
 
 1. 把待识别图片放到项目目录（默认读取 `test.jpg`）。
 2. 按需修改 `main.py` 中的：
@@ -55,19 +76,9 @@ pip install torch transformers pillow requests streamlit
 python main.py
 ```
 
-输出示例（不同图片会不同）：
-
-```text
-Most similar label: a cat
-Confidence: 0.91
-This image is about a cat.
-```
-
 ---
 
 ## 2) 使用 ChatGLM 问答模块
-
-`chatglm_module.py` 提供了模块级函数：
 
 ```python
 from chatglm_module import generate_answer
@@ -87,29 +98,15 @@ print(answer)
 
 ## 3) 运行 Streamlit Demo
 
-启动前端：
-
 ```bash
 streamlit run streamlit_app.py
 ```
 
-页面功能：
-- 输入问题
-- 上传图片
-- 调用后端 API 并展示返回内容
-
-默认后端地址：
-
-```text
-http://127.0.0.1:8000/chat
-```
+默认后端地址：`http://127.0.0.1:8000/chat`
 
 前端提交格式：
 - form field: `question`
 - file field: `image`
-
-后端返回 JSON 时，前端会优先尝试读取以下字段作为回答：
-`answer` / `response` / `result` / `output`（以及 `data` 下的同名字段）。
 
 ---
 
@@ -133,24 +130,6 @@ http://127.0.0.1:8000/chat
 - `api`：返回模拟 API 响应
 
 统一入口：`ToolRouter.route(json_str)`
-
----
-
-## 常见问题
-
-### 1. 第一次运行模型下载很慢
-模型会从 Hugging Face 下载，取决于网络环境。可提前配置镜像或缓存目录。
-
-### 2. 显存不足怎么办
-- 降低输入长度
-- 使用 CPU 运行
-- 更换更小模型
-
-### 3. Streamlit 能打开但调用失败
-请确认：
-- 后端服务已启动
-- API 地址正确
-- 后端支持 `multipart/form-data` 并接收 `question` 与 `image`
 
 ---
 
