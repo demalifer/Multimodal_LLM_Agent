@@ -21,12 +21,18 @@
 
 ```text
 .
-├── chatglm_module.py     # ChatGLM3-6B 封装：根据问题+图像描述生成回答
-├── execution.py          # 统一 Python 执行工具（受限 builtins）
-├── main.py               # CLIP 零样本图像分类示例
-├── streamlit_app.py      # Streamlit 多模态问答页面
-├── tool_executor.py      # 简单 JSON 工具执行器（python）
-├── tool_router.py        # 工具路由器（python/sql/api）
+├── multimodal_agent/     # 主业务包（按模块分文件夹）
+│   ├── apps/             # Streamlit 页面模块
+│   ├── core/             # 通用执行能力
+│   ├── models/           # LLM 模型封装
+│   ├── tools/            # 工具执行与路由
+│   └── vision/           # 视觉模型模块
+├── main.py               # CLIP 示例入口
+├── streamlit_app.py      # Streamlit 入口
+├── chatglm_module.py     # 兼容导出入口
+├── execution.py          # 兼容导出入口
+├── tool_executor.py      # 兼容导出入口
+├── tool_router.py        # 兼容导出入口
 ├── tests/                # pytest 测试
 ├── pyproject.toml        # 依赖与工程配置
 ├── Makefile              # 常用工程命令
@@ -64,7 +70,7 @@ make run-ui   # 启动 Streamlit
 
 ## 1) 运行 CLIP 图像分类示例
 
-`main.py` 会加载 `openai/clip-vit-base-patch32`，对指定图片在候选标签中做零样本匹配。
+`main.py` 调用 `multimodal_agent/vision/clip_classifier.py` 中的 CLIP 分类逻辑。
 
 1. 把待识别图片放到项目目录（默认读取 `test.jpg`）。
 2. 按需修改 `main.py` 中的：
@@ -81,7 +87,7 @@ python main.py
 ## 2) 使用 ChatGLM 问答模块
 
 ```python
-from chatglm_module import generate_answer
+from multimodal_agent.models.chatglm_module import generate_answer
 
 answer = generate_answer(
     question="这张图里有什么？",
