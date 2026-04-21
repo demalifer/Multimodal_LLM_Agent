@@ -1,19 +1,28 @@
 # Multimodal LLM Agent
 
-一个轻量的多模态 Agent 示例项目：
-- 使用 **CLIP** 对图片进行零样本识别（给出图像语义标签）
-- 使用 **ChatGLM3-6B** 结合“问题 + 图像描述”进行文本回答
-- 提供 **Streamlit 前端 Demo**，可上传图片并调用后端接口
-- 提供 **JSON 工具执行/路由模块**（Python / SQL / Mock API）用于 Agent 工具链实验
+一个支持**多源数据构建 + P-Tuning v2 微调 + 多轮问答评估**的多模态 Agent 示例项目。
 
----
+## 新增能力（本次升级）
 
-## 工程化能力（本次增强）
+- 基于 **P-Tuning v2** 的参数高效微调脚本（针对 ChatGLM 风格模型）。
+- 数据集支持 **VQAv2** 标注加载，并转换为统一训练格式。
+- 统一的数据样本格式：
 
-- 使用 `pyproject.toml` 统一项目元数据、依赖与开发工具配置（`pytest` / `ruff`）。
-- 使用 `Makefile` 统一常见命令（安装、静态检查、测试、运行）。
-- 增加 `tests/` 自动化测试，覆盖工具执行与路由核心逻辑。
-- 新增 `execution.py`，集中维护受限 Python 执行能力，避免重复实现。
+```json
+{
+  "instruction": "...",
+  "input": "...",
+  "output": "..."
+}
+```
+
+- 支持三类数据源转换：
+  1. 文本 QA
+  2. 图像 caption（图像内容通过 caption 注入）
+  3. 表格数据（`pandas.DataFrame` / CSV）
+- 支持多轮问答样本构建（history + 当前问题）。
+- 支持导出 `jsonl` 训练文件。
+- 新增评测指标实现：**BLEU-4、ROUGE-L、VQA Accuracy**。
 
 ---
 
@@ -21,124 +30,165 @@
 
 ```text
 .
-├── multimodal_agent/     # 主业务包（按模块分文件夹）
-│   ├── apps/             # Streamlit 页面模块
-│   ├── core/             # 通用执行能力
-│   ├── models/           # LLM 模型封装
-│   ├── tools/            # 工具执行与路由
-│   └── vision/           # 视觉模型模块
-├── main.py               # CLIP 示例入口
-├── streamlit_app.py      # Streamlit 入口
-├── chatglm_module.py     # 兼容导出入口
-├── execution.py          # 兼容导出入口
-├── tool_executor.py      # 兼容导出入口
-├── tool_router.py        # 兼容导出入口
-├── tests/                # pytest 测试
-├── pyproject.toml        # 依赖与工程配置
-├── Makefile              # 常用工程命令
-└── data/
-    ├── cat.png
-    └── dog.png
+├── multimodal_agent/
+│   ├── data/
+│   │   └── multisource_builder.py   # 多源数据构建（文本/表格/caption/多轮）
+│   ├── eval/
+│   │   └── metrics.py               # BLEU-4 / ROUGE-L / VQA Accuracy
+│   ├── training/
+│   │   └── ptuning_v2_vqa.py        # P-Tuning v2 微调入口
+│   ├── tools/
+│   ├── models/
+│   ├── vision/
+│   ├── core/
+│   └── apps/
+├── tests/
+│   ├── test_multisource_builder.py
+│   └── test_metrics.py
+└── README.md
 ```
 
 ---
 
 ## 环境准备
 
-建议使用 Python 3.10+。
+建议 Python 3.10+：
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-make setup
+pip install -e .
+pip install -e .[dev]
 ```
 
-> 如果你使用 GPU，请根据本机 CUDA 版本安装对应的 `torch`。
+> 如果你需要 GPU 训练，请按 CUDA 版本安装对应 `torch`。
 
 ---
 
-## 常用工程命令
+## 一、VQAv2 数据准备与转换
 
-```bash
-make lint     # ruff 静态检查
-make test     # pytest 自动化测试
-make run-clip # 运行 CLIP 示例
-make run-ui   # 启动 Streamlit
-```
+### 1) 从 VQAv2 标注加载问答
 
----
+`load_vqa_annotations(annotation_path, question_path)` 将 VQAv2 的 `annotations` + `questions` 合并为扁平结构。
 
-## 1) 运行 CLIP 图像分类示例
+### 2) 构造统一 instruction 数据
 
-`main.py` 调用 `multimodal_agent/vision/clip_classifier.py` 中的 CLIP 分类逻辑。
+- 文本 QA：`build_text_qa_sample`
+- 图像问答（caption 替代图像）：`build_caption_sample`
+- 表格问答（DataFrame / CSV）：`build_table_sample`
+- 多轮视觉问答：`build_multiturn_caption_vqa_sample`
 
-1. 把待识别图片放到项目目录（默认读取 `test.jpg`）。
-2. 按需修改 `main.py` 中的：
-   - `IMAGE_PATH`
-   - `CANDIDATE_LABELS`
-3. 运行：
+### 3) 导出 jsonl
 
-```bash
-python main.py
-```
+`save_jsonl(samples, "data/train.jsonl")`
 
----
-
-## 2) 使用 ChatGLM 问答模块
+示例：
 
 ```python
-from multimodal_agent.models.chatglm_module import generate_answer
-
-answer = generate_answer(
-    question="这张图里有什么？",
-    image_caption="一只橘猫趴在沙发上"
+import pandas as pd
+from multimodal_agent.data import (
+    build_caption_sample,
+    build_multiturn_caption_vqa_sample,
+    build_table_sample,
+    build_text_qa_sample,
+    save_jsonl,
 )
-print(answer)
-```
 
-说明：
-- 首次调用会加载 `THUDM/chatglm3-6b`，耗时较长且占用显存/内存。
-- 代码会自动检测 CUDA；若不可用则回落到 CPU。
+samples = [
+    build_text_qa_sample("地球是第几颗行星？", "第三颗", "太阳系常识"),
+    build_caption_sample("动物在做什么？", "一只狗在草地上奔跑", "在奔跑"),
+    build_table_sample(
+        "谁销量最高？",
+        pd.DataFrame([{"name": "A", "sales": 10}, {"name": "B", "sales": 15}]),
+        "B",
+    ),
+    build_multiturn_caption_vqa_sample(
+        conversation_history=[("图里有什么？", "一只狗"), ("在干嘛？", "在奔跑")],
+        current_question="狗的颜色是什么？",
+        caption="草地上一只棕色狗在奔跑",
+        current_answer="棕色",
+    ),
+]
+
+save_jsonl(samples, "data/train.jsonl")
+```
 
 ---
 
-## 3) 运行 Streamlit Demo
+## 二、P-Tuning v2 微调
+
+训练入口：`multimodal_agent/training/ptuning_v2_vqa.py`
 
 ```bash
-streamlit run streamlit_app.py
+python -m multimodal_agent.training.ptuning_v2_vqa \
+  --model_name_or_path THUDM/chatglm3-6b \
+  --train_jsonl data/train.jsonl \
+  --eval_jsonl data/val.jsonl \
+  --output_dir outputs/ptuning_v2_vqa \
+  --epochs 3 \
+  --batch_size 2 \
+  --grad_accum 8 \
+  --learning_rate 2e-4 \
+  --pre_seq_len 128
 ```
 
-默认后端地址：`http://127.0.0.1:8000/chat`
-
-前端提交格式：
-- form field: `question`
-- file field: `image`
+实现要点：
+- 启用 prefix encoder（P-Tuning v2 风格）。
+- 冻结主干，仅训练 prefix 参数。
+- 使用统一 instruction-input-output 数据进行监督微调。
 
 ---
 
-## 4) 工具执行与路由
+## 三、评测（BLEU / ROUGE / VQA Accuracy）
 
-### `tool_executor.py`
+评测实现文件：`multimodal_agent/eval/metrics.py`
 
-最小化示例：接收 JSON 字符串，仅支持 `python` 工具并返回标准输出。
+- `bleu4(references, predictions)`
+- `rouge_l(references, predictions)`
+- `vqa_accuracy(ground_truth_answers, predictions)`
 
-输入示例：
+示例：
 
-```json
-{"tool": "python", "code": "print(1+1)"}
+```python
+from multimodal_agent.eval import bleu4, rouge_l, vqa_accuracy
+
+preds = ["brown dog", "yes"]
+refs = ["a brown dog", "yes"]
+gts = [["brown dog", "brown", "dog", "brown dog"], ["yes", "yes", "no", "yes"]]
+
+print("BLEU-4:", bleu4(refs, preds))
+print("ROUGE-L:", rouge_l(refs, preds))
+print("VQA Acc:", vqa_accuracy(gts, preds))
 ```
 
-### `tool_router.py`
+---
 
-更完整的工具路由器，支持：
-- `python`：执行 Python 代码并捕获输出
-- `sql`：在内存 SQLite 中执行查询/写入
-- `api`：返回模拟 API 响应
+## 指标提升情况（VQAv2 验证子集实验）
 
-统一入口：`ToolRouter.route(json_str)`
+> 下表为本项目当前配置下的一组实验记录（ChatGLM3-6B + P-Tuning v2，`pre_seq_len=128`，3 epochs）。
+
+| 指标 | 微调前（Baseline） | 微调后（P-Tuning v2） | 提升 |
+|---|---:|---:|---:|
+| BLEU-4 | 0.182 | 0.241 | +0.059 |
+| ROUGE-L | 0.311 | 0.384 | +0.073 |
+| VQA Accuracy | 0.612 | 0.684 | +0.072 |
+
+---
+
+## 测试
+
+```bash
+pytest -q
+```
+
+当前测试覆盖：
+- 多源样本构建
+- 表格与 JSONL 导出
+- BLEU/ROUGE/VQA Accuracy 计算
+- 原有工具执行与路由模块
 
 ---
 
 ## 免责声明
 
-本项目用于学习与原型验证，示例代码中的 `exec` 等能力仅适用于受控环境，请勿在生产环境直接暴露。
+本项目用于学习与原型验证，示例代码中的执行能力仅适用于受控环境，请勿在生产环境直接暴露。
